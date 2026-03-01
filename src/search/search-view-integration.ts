@@ -152,6 +152,7 @@ export class SearchViewIntegration {
 		};
 
 		this.ensureHostForAbsolutePosition(hostEl);
+		hostEl.appendChild(controlsEl);
 		this.positionControls(controls);
 		this.syncWholeWordTypography(controls);
 
@@ -161,7 +162,7 @@ export class SearchViewIntegration {
 			controls.rawQuery = controls.inputEl.value;
 			controls.wholeWord = !controls.wholeWord;
 			this.updateButtonStates(controls);
-			void this.syncSearchState(controls);
+			void this.syncSearchState(controls, true);
 			this.persistDefaults(controls);
 		});
 
@@ -171,7 +172,7 @@ export class SearchViewIntegration {
 			controls.rawQuery = controls.inputEl.value;
 			controls.useRegex = !controls.useRegex;
 			this.updateButtonStates(controls);
-			void this.syncSearchState(controls);
+			void this.syncSearchState(controls, true);
 			this.persistDefaults(controls);
 		});
 
@@ -281,7 +282,10 @@ export class SearchViewIntegration {
 		this.positionControls(controls);
 	}
 
-	private async syncSearchState(controls: SearchControls): Promise<void> {
+	private async syncSearchState(
+		controls: SearchControls,
+		forceRefresh = false
+	): Promise<void> {
 		const syncId = ++controls.stateSyncId;
 		const queryForSearch = this.encodeQuery(
 			controls.rawQuery,
@@ -290,8 +294,9 @@ export class SearchViewIntegration {
 		);
 
 		const viewState = controls.leaf.getViewState();
-		const currentState = viewState.state ?? {};
-		if (currentState.query === queryForSearch) {
+		const currentState = (viewState.state ?? {}) as Record<string, unknown>;
+		const sameQuery = currentState.query === queryForSearch;
+		if (sameQuery && !forceRefresh) {
 			return;
 		}
 
@@ -302,13 +307,34 @@ export class SearchViewIntegration {
 
 		controls.applyingQuery = true;
 		try {
-			await controls.leaf.setViewState({
-				...viewState,
-				state: {
-					...currentState,
-					query: queryForSearch,
-				},
-			});
+			if (sameQuery && forceRefresh) {
+				await controls.leaf.setViewState({
+					...viewState,
+					state: {
+						...currentState,
+						query: this.buildRefreshProbeQuery(queryForSearch),
+					},
+				});
+
+				const refreshedViewState = controls.leaf.getViewState();
+				const refreshedState = (refreshedViewState.state ??
+					{}) as Record<string, unknown>;
+				await controls.leaf.setViewState({
+					...refreshedViewState,
+					state: {
+						...refreshedState,
+						query: queryForSearch,
+					},
+				});
+			} else {
+				await controls.leaf.setViewState({
+					...viewState,
+					state: {
+						...currentState,
+						query: queryForSearch,
+					},
+				});
+			}
 		} finally {
 			if (syncId === controls.stateSyncId) {
 				if (inputEl.isConnected) {
@@ -321,6 +347,10 @@ export class SearchViewIntegration {
 				this.positionControls(controls);
 			}
 		}
+	}
+
+	private buildRefreshProbeQuery(targetQuery: string): string {
+		return `__advanced_search_refresh_${targetQuery.length}_${Date.now()}__`;
 	}
 
 	private persistDefaults(controls: SearchControls): void {
