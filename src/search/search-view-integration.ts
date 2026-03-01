@@ -1,8 +1,9 @@
-﻿import { setIcon, type WorkspaceLeaf } from "obsidian";
+﻿import { setIcon, TFile, TFolder, type WorkspaceLeaf } from "obsidian";
 import type AdvancedSearchPlugin from "../main";
 
 const SEARCH_VIEW_TYPE = "search";
 const CONTROLS_ATTRIBUTE = "data-advanced-search-controls";
+const PATH_FILTERS_ATTRIBUTE = "data-advanced-search-path-filters";
 const WHOLE_WORD_LABEL = "W";
 const MIN_RIGHT_GUTTER = 2;
 const DEFAULT_ICON_GAP = 2;
@@ -12,16 +13,23 @@ interface SearchControls {
 	leaf: WorkspaceLeaf;
 	inputEl: HTMLInputElement;
 	hostEl: HTMLElement;
+	filtersAnchorEl: HTMLElement;
 	controlsEl: HTMLDivElement;
+	pathFiltersEl: HTMLDivElement;
+	includeInputEl: HTMLInputElement;
+	excludeInputEl: HTMLInputElement;
 	wholeWordButtonEl: HTMLButtonElement;
 	wholeWordTextEl: HTMLSpanElement;
 	regexButtonEl: HTMLButtonElement;
 	wholeWord: boolean;
 	useRegex: boolean;
 	rawQuery: string;
+	includeGlob: string;
+	excludeGlob: string;
 	applyingQuery: boolean;
 	stateSyncId: number;
 	originalPaddingRightPx: number;
+	resizeObserver: ResizeObserver | null;
 }
 
 export class SearchViewIntegration {
@@ -49,11 +57,20 @@ export class SearchViewIntegration {
 				this.injectControls();
 			})
 		);
+
+		this.plugin.registerEvent(
+			this.plugin.app.workspace.on("resize", () => {
+				this.relayoutAllControls();
+			})
+		);
 	}
 
 	destroy(): void {
 		for (const controls of this.activeControls) {
+			controls.resizeObserver?.disconnect();
+			controls.resizeObserver = null;
 			controls.controlsEl.remove();
+			controls.pathFiltersEl.remove();
 		}
 		this.activeControls.clear();
 	}
@@ -71,6 +88,7 @@ export class SearchViewIntegration {
 			liveInputs.add(inputEl);
 			const existingControls = this.controlsByInput.get(inputEl);
 			if (existingControls) {
+				this.ensurePathFiltersPlacement(existingControls);
 				this.positionControls(existingControls);
 				this.syncWholeWordTypography(existingControls);
 				continue;
@@ -83,7 +101,10 @@ export class SearchViewIntegration {
 
 		for (const controls of [...this.activeControls]) {
 			if (!controls.inputEl.isConnected || !liveInputs.has(controls.inputEl)) {
+				controls.resizeObserver?.disconnect();
+				controls.resizeObserver = null;
 				controls.controlsEl.remove();
+				controls.pathFiltersEl.remove();
 				this.activeControls.delete(controls);
 			}
 		}
@@ -117,13 +138,36 @@ export class SearchViewIntegration {
 			nearestSearchContainer instanceof HTMLElement
 				? nearestSearchContainer
 				: inputEl.parentElement ?? leaf.view.containerEl;
+		const filtersAnchorEl =
+			nearestSearchContainer instanceof HTMLElement ? nearestSearchContainer : hostEl;
 
 		hostEl.findAll(`[${CONTROLS_ATTRIBUTE}]`).forEach((el) => el.remove());
+		leaf.view.containerEl
+			.findAll(`[${PATH_FILTERS_ATTRIBUTE}]`)
+			.forEach((el) => el.remove());
 
 		const controlsEl = hostEl.createDiv({
 			cls: "advanced-search-inline-controls",
 		});
 		controlsEl.setAttr(CONTROLS_ATTRIBUTE, "true");
+
+		const pathFiltersEl = createDiv({
+			cls: "advanced-search-path-filters",
+		});
+		pathFiltersEl.setAttr(PATH_FILTERS_ATTRIBUTE, "true");
+		this.appendPathFiltersAfterHost(hostEl, pathFiltersEl);
+
+		const includeInputEl = this.createPathFilterInput(
+			pathFiltersEl,
+			"Files to include",
+			"e.g. src/**, **/*.ts"
+		);
+		const excludeInputEl = this.createPathFilterInput(
+			pathFiltersEl,
+			"Files to exclude",
+			"e.g. **/node_modules/**, **/*.min.js"
+		);
+
 		const wholeWordToggle = this.createTextToggleButton(
 			controlsEl,
 			"Match whole word",
@@ -134,7 +178,11 @@ export class SearchViewIntegration {
 			leaf,
 			inputEl,
 			hostEl,
+			filtersAnchorEl,
 			controlsEl,
+			pathFiltersEl,
+			includeInputEl,
+			excludeInputEl,
 			wholeWordButtonEl: wholeWordToggle.buttonEl,
 			wholeWordTextEl: wholeWordToggle.textEl,
 			regexButtonEl: this.createIconToggleButton(
@@ -146,9 +194,12 @@ export class SearchViewIntegration {
 			wholeWord: this.plugin.settings.defaultWholeWord,
 			useRegex: this.plugin.settings.defaultUseRegex,
 			rawQuery: inputEl.value,
+			includeGlob: "",
+			excludeGlob: "",
 			applyingQuery: false,
 			stateSyncId: 0,
 			originalPaddingRightPx: this.readPaddingRightPx(inputEl),
+			resizeObserver: null,
 		};
 
 		this.ensureHostForAbsolutePosition(hostEl);
@@ -187,6 +238,16 @@ export class SearchViewIntegration {
 			}
 		);
 
+		this.plugin.registerDomEvent(controls.includeInputEl, "input", () => {
+			controls.includeGlob = controls.includeInputEl.value;
+			void this.syncSearchState(controls, true);
+		});
+
+		this.plugin.registerDomEvent(controls.excludeInputEl, "input", () => {
+			controls.excludeGlob = controls.excludeInputEl.value;
+			void this.syncSearchState(controls, true);
+		});
+
 		this.plugin.registerDomEvent(window, "resize", () => {
 			this.positionControls(controls);
 		});
@@ -202,6 +263,7 @@ export class SearchViewIntegration {
 		this.plugin.registerDomEvent(controls.inputEl, "blur", () => {
 			this.positionControls(controls);
 		});
+		this.attachResizeObserver(controls);
 
 		this.updateButtonStates(controls);
 		void this.syncSearchState(controls);
@@ -217,12 +279,61 @@ export class SearchViewIntegration {
 		controls.rawQuery = controls.inputEl.value;
 		this.positionControls(controls);
 
-		if (!controls.wholeWord && !controls.useRegex) {
+		if (!this.hasCustomQueryModifiers(controls)) {
 			return;
 		}
 
 		event.stopImmediatePropagation();
 		void this.syncSearchState(controls);
+	}
+
+	private hasCustomQueryModifiers(controls: SearchControls): boolean {
+		return (
+			controls.wholeWord ||
+			controls.useRegex ||
+			controls.includeGlob.trim().length > 0 ||
+			controls.excludeGlob.trim().length > 0
+		);
+	}
+
+	private createPathFilterInput(
+		parentEl: HTMLElement,
+		label: string,
+		placeholder: string
+	): HTMLInputElement {
+		const rowEl = parentEl.createDiv({
+			cls: "advanced-search-path-filter-row",
+		});
+		rowEl.createDiv({
+			cls: "advanced-search-path-filter-label",
+			text: label,
+		});
+		return rowEl.createEl("input", {
+			cls: "advanced-search-path-filter-input",
+			attr: {
+				type: "text",
+				placeholder,
+			},
+		});
+	}
+
+	private attachResizeObserver(controls: SearchControls): void {
+		if (typeof ResizeObserver === "undefined") {
+			return;
+		}
+
+		const observer = new ResizeObserver(() => {
+			this.positionControls(controls);
+			this.syncWholeWordTypography(controls);
+		});
+
+		observer.observe(controls.inputEl);
+		observer.observe(controls.filtersAnchorEl);
+		observer.observe(controls.leaf.view.containerEl);
+		controls.resizeObserver = observer;
+		this.plugin.register(() => {
+			observer.disconnect();
+		});
 	}
 
 	private createIconToggleButton(
@@ -287,14 +398,10 @@ export class SearchViewIntegration {
 		forceRefresh = false
 	): Promise<void> {
 		const syncId = ++controls.stateSyncId;
-		const queryForSearch = this.encodeQuery(
-			controls.rawQuery,
-			controls.useRegex,
-			controls.wholeWord
-		);
+		const queryForSearch = this.buildSearchQuery(controls);
 
 		const viewState = controls.leaf.getViewState();
-		const currentState = viewState.state ?? {};
+		const currentState = (viewState.state ?? {}) as Record<string, unknown>;
 		const sameQuery = currentState.query === queryForSearch;
 		if (sameQuery && !forceRefresh) {
 			return;
@@ -317,7 +424,8 @@ export class SearchViewIntegration {
 				});
 
 				const refreshedViewState = controls.leaf.getViewState();
-				const refreshedState = refreshedViewState.state ?? {};
+				const refreshedState = (refreshedViewState.state ??
+					{}) as Record<string, unknown>;
 				await controls.leaf.setViewState({
 					...refreshedViewState,
 					state: {
@@ -358,7 +466,20 @@ export class SearchViewIntegration {
 		void this.plugin.saveSettings();
 	}
 
-	private encodeQuery(
+	private buildSearchQuery(controls: SearchControls): string {
+		const contentQuery = this.encodeContentQuery(
+			controls.rawQuery,
+			controls.useRegex,
+			controls.wholeWord
+		);
+		const includeQuery = this.buildIncludePathQuery(controls.includeGlob);
+		const excludeQuery = this.buildExcludePathQuery(controls.excludeGlob);
+		return [contentQuery, includeQuery, excludeQuery]
+			.filter((part) => part.length > 0)
+			.join(" ");
+	}
+
+	private encodeContentQuery(
 		rawQuery: string,
 		useRegex: boolean,
 		wholeWord: boolean
@@ -384,16 +505,480 @@ export class SearchViewIntegration {
 		return `/\\b${escaped}\\b/`;
 	}
 
+	private buildIncludePathQuery(globText: string): string {
+		const patterns = this.parseGlobList(globText);
+		if (patterns.length === 0) {
+			return "";
+		}
+
+		const clauses = patterns.flatMap((pattern) =>
+			this.buildPathIncludeClauses(pattern)
+		);
+		if (clauses.length === 0) {
+			return "";
+		}
+		if (clauses.length === 1) {
+			return clauses[0] ?? "";
+		}
+		return `(${clauses.join(" OR ")})`;
+	}
+
+	private buildExcludePathQuery(globText: string): string {
+		const patterns = this.parseGlobList(globText);
+		if (patterns.length === 0) {
+			return "";
+		}
+
+		return patterns
+			.flatMap((pattern) => this.buildPathExcludeClauses(pattern))
+			.map((clause) => `-${clause}`)
+			.join(" ");
+	}
+
+	private buildPathExcludeClauses(rawPattern: string): string[] {
+		const normalized = this.normalizePathPattern(rawPattern);
+		if (!normalized) {
+			return [];
+		}
+
+		const hasGlobMeta = /[*?[\]{}]/.test(normalized);
+		if (hasGlobMeta) {
+			return [`path:/${this.globToPathRegex(normalized)}/`];
+		}
+
+		const explicitDirectoryHint = normalized.endsWith("/");
+		const literalPattern = explicitDirectoryHint
+			? normalized.replace(/\/+$/, "")
+			: normalized;
+
+		if (explicitDirectoryHint) {
+			return [this.buildDirectoryPathClause(literalPattern)];
+		}
+
+		// Name-only patterns should exclude both same-name files and folders.
+		if (!literalPattern.includes("/")) {
+			const byNameClauses = this.resolveNameOnlyPathClauses(literalPattern);
+			if (byNameClauses.length > 0) {
+				return byNameClauses;
+			}
+		}
+
+		const resolvedPath = this.resolveLiteralPatternPath(literalPattern);
+		if (resolvedPath instanceof TFile) {
+			return [this.buildExactFilePathClause(resolvedPath.path)];
+		}
+		if (resolvedPath instanceof TFolder) {
+			return [this.buildDirectoryPathClause(resolvedPath.path)];
+		}
+
+		if (literalPattern.includes("/")) {
+			return [this.buildExactFilePathClause(literalPattern)];
+		}
+
+		return [this.buildExactFilePathClause(literalPattern)];
+	}
+
+	private buildPathIncludeClauses(rawPattern: string): string[] {
+		const normalized = this.normalizePathPattern(rawPattern);
+		if (!normalized) {
+			return [];
+		}
+
+		const hasGlobMeta = /[*?[\]{}]/.test(normalized);
+		if (hasGlobMeta) {
+			return [`path:/${this.globToPathRegex(normalized)}/`];
+		}
+
+		const explicitDirectoryHint = normalized.endsWith("/");
+		const literalPattern = explicitDirectoryHint
+			? normalized.replace(/\/+$/, "")
+			: normalized;
+
+		// Name-only patterns should include both same-name files and folders.
+		if (!explicitDirectoryHint && !literalPattern.includes("/")) {
+			const byNameClauses = this.resolveNameOnlyPathClauses(literalPattern);
+			if (byNameClauses.length > 0) {
+				return byNameClauses;
+			}
+		}
+
+		const resolvedPath = this.resolveLiteralPatternPath(literalPattern);
+		if (resolvedPath instanceof TFile) {
+			return [this.buildExactFilePathClause(resolvedPath.path)];
+		}
+		if (resolvedPath instanceof TFolder) {
+			return [this.buildDirectoryPathClause(resolvedPath.path)];
+		}
+
+		if (explicitDirectoryHint) {
+			return [this.buildDirectoryPathClause(literalPattern)];
+		}
+
+		if (literalPattern.includes("/")) {
+			return [this.buildExactFilePathClause(literalPattern)];
+		}
+
+		return [this.buildExactFilePathClause(literalPattern)];
+	}
+
+	private resolveNameOnlyPathClauses(name: string): string[] {
+		const clauses = new Set<string>();
+		const matchesByName = name.includes(".");
+
+		for (const abstractFile of this.plugin.app.vault.getAllLoadedFiles()) {
+			if (abstractFile instanceof TFile) {
+				const fileMatch = matchesByName
+					? abstractFile.name === name
+					: abstractFile.basename === name;
+				if (fileMatch) {
+					clauses.add(this.buildExactFilePathClause(abstractFile.path));
+				}
+				continue;
+			}
+			if (abstractFile instanceof TFolder && abstractFile.path.length > 0) {
+				if (abstractFile.name === name) {
+					clauses.add(this.buildDirectoryPathClause(abstractFile.path));
+				}
+			}
+		}
+
+		return [...clauses];
+	}
+
+	private buildExactFilePathClause(path: string): string {
+		return `path:"${this.escapeSearchQueryValue(path)}"`;
+	}
+
+	private buildDirectoryPathClause(path: string): string {
+		const normalized = path.replace(/\/+$/, "");
+		return `path:"${this.escapeSearchQueryValue(`${normalized}/`)}"`;
+	}
+
+	private parseGlobList(value: string): string[] {
+		const text = value.trim();
+		if (!text) {
+			return [];
+		}
+
+		const patterns: string[] = [];
+		let current = "";
+		let braceDepth = 0;
+		let classDepth = 0;
+
+		for (let i = 0; i < text.length; i++) {
+			const ch = text[i] ?? "";
+			if (ch === "{" && classDepth === 0) {
+				braceDepth++;
+				current += ch;
+				continue;
+			}
+			if (ch === "}" && classDepth === 0 && braceDepth > 0) {
+				braceDepth--;
+				current += ch;
+				continue;
+			}
+			if (ch === "[") {
+				classDepth++;
+				current += ch;
+				continue;
+			}
+			if (ch === "]" && classDepth > 0) {
+				classDepth--;
+				current += ch;
+				continue;
+			}
+			if (ch === "," && braceDepth === 0 && classDepth === 0) {
+				const trimmed = current.trim();
+				if (trimmed.length > 0) {
+					patterns.push(trimmed);
+				}
+				current = "";
+				continue;
+			}
+			current += ch;
+		}
+
+		const tail = current.trim();
+		if (tail.length > 0) {
+			patterns.push(tail);
+		}
+
+		return patterns;
+	}
+
+	private globToPathRegex(rawPattern: string): string {
+		let pattern = this.normalizePathPattern(rawPattern);
+		if (!pattern) {
+			return "^$";
+		}
+
+		const hasGlobMeta = /[*?[\]{}]/.test(pattern);
+		const explicitDirectoryHint = pattern.endsWith("/");
+		if (explicitDirectoryHint) {
+			pattern = pattern.replace(/\/+$/, "");
+		}
+
+		if (!hasGlobMeta) {
+			const resolvedPath = this.resolveLiteralPatternPath(pattern);
+			if (resolvedPath instanceof TFile) {
+				return `^${this.escapeRegexQueryLiteral(resolvedPath.path)}$`;
+			}
+			if (resolvedPath instanceof TFolder) {
+				return `^${this.escapeRegexQueryLiteral(resolvedPath.path)}\\/.*$`;
+			}
+
+			if (explicitDirectoryHint) {
+				return `^${this.escapeRegexQueryLiteral(pattern)}\\/.*$`;
+			}
+
+			// Explicit relative path without glob is treated as a single file path.
+			if (pattern.includes("/")) {
+				return `^${this.escapeRegexQueryLiteral(pattern)}$`;
+			}
+
+			// Bare name falls back to exact file-name match anywhere.
+			return `^(?:.*\\/)?${this.escapeRegexQueryLiteral(pattern)}$`;
+		}
+
+		if (explicitDirectoryHint) {
+			pattern = `${pattern}/**`;
+		}
+
+		const source = this.convertGlobToRegexSource(pattern);
+		return `^${source}$`;
+	}
+
+	private normalizePathPattern(rawPattern: string): string {
+		let pattern = rawPattern.trim().replace(/\\/g, "/");
+		while (pattern.startsWith("./")) {
+			pattern = pattern.slice(2);
+		}
+		pattern = pattern.replace(/^\/+/, "");
+		return pattern;
+	}
+
+	private resolveLiteralPatternPath(pattern: string): TFile | TFolder | null {
+		const normalized = pattern.replace(/\/+$/, "");
+		if (!normalized) {
+			return null;
+		}
+
+		const exact = this.plugin.app.vault.getAbstractFileByPath(normalized);
+		if (exact instanceof TFile || exact instanceof TFolder) {
+			return exact;
+		}
+
+		const hasExtension = /\.[^./]+$/.test(normalized.split("/").pop() ?? "");
+		if (hasExtension) {
+			return null;
+		}
+
+		const markdownFile = this.plugin.app.vault.getAbstractFileByPath(
+			`${normalized}.md`
+		);
+		if (markdownFile instanceof TFile) {
+			return markdownFile;
+		}
+
+		return null;
+	}
+
+	private convertGlobToRegexSource(pattern: string): string {
+		let result = "";
+		let index = 0;
+
+		while (index < pattern.length) {
+			const ch = pattern[index] ?? "";
+			if (ch === "*") {
+				const next = pattern[index + 1] ?? "";
+				if (next === "*") {
+					result += ".*";
+					index += 2;
+					continue;
+				}
+				result += "[^/]*";
+				index++;
+				continue;
+			}
+			if (ch === "?") {
+				result += "[^/]";
+				index++;
+				continue;
+			}
+			if (ch === "[") {
+				const end = pattern.indexOf("]", index + 1);
+				if (end > index + 1) {
+					const classSource = pattern.slice(index, end + 1);
+					result += classSource;
+					index = end + 1;
+					continue;
+				}
+				result += "\\[";
+				index++;
+				continue;
+			}
+			if (ch === "{") {
+				const end = this.findClosingBrace(pattern, index);
+				if (end !== -1) {
+					const inner = pattern.slice(index + 1, end);
+					const parts = this.splitBraceAlternatives(inner).map((part) =>
+						this.convertGlobToRegexSource(part)
+					);
+					result += `(?:${parts.join("|")})`;
+					index = end + 1;
+					continue;
+				}
+				result += "\\{";
+				index++;
+				continue;
+			}
+
+			result += this.escapeRegexChar(ch);
+			index++;
+		}
+
+		return result;
+	}
+
+	private findClosingBrace(pattern: string, start: number): number {
+		let depth = 0;
+		for (let i = start; i < pattern.length; i++) {
+			const ch = pattern[i] ?? "";
+			if (ch === "{") {
+				depth++;
+				continue;
+			}
+			if (ch === "}") {
+				depth--;
+				if (depth === 0) {
+					return i;
+				}
+			}
+		}
+		return -1;
+	}
+
+	private splitBraceAlternatives(value: string): string[] {
+		const parts: string[] = [];
+		let current = "";
+		let depth = 0;
+
+		for (let i = 0; i < value.length; i++) {
+			const ch = value[i] ?? "";
+			if (ch === "{") {
+				depth++;
+				current += ch;
+				continue;
+			}
+			if (ch === "}" && depth > 0) {
+				depth--;
+				current += ch;
+				continue;
+			}
+			if (ch === "," && depth === 0) {
+				parts.push(current);
+				current = "";
+				continue;
+			}
+			current += ch;
+		}
+		parts.push(current);
+		return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+	}
+
+	private escapeRegexChar(ch: string): string {
+		if (/[-/\\^$*+?.()|[\]{}]/.test(ch)) {
+			return `\\${ch}`;
+		}
+		return ch;
+	}
+
+	private escapeRegexQueryLiteral(value: string): string {
+		let result = "";
+		for (const ch of value) {
+			result += this.escapeRegexChar(ch);
+		}
+		return result;
+	}
+
+	private escapeSearchQueryValue(value: string): string {
+		return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+	}
+
 	private ensureHostForAbsolutePosition(hostEl: HTMLElement): void {
 		if (window.getComputedStyle(hostEl).position === "static") {
 			hostEl.addClass("advanced-search-host-relative");
 		}
 	}
 
+	private ensurePathFiltersPlacement(controls: SearchControls): void {
+		if (!controls.pathFiltersEl.isConnected) {
+			this.appendPathFiltersAfterHost(
+				controls.filtersAnchorEl,
+				controls.pathFiltersEl
+			);
+		}
+		this.syncPathFiltersGeometry(controls);
+	}
+
+	private appendPathFiltersAfterHost(
+		hostEl: HTMLElement,
+		pathFiltersEl: HTMLElement
+	): void {
+		const anchorEl = this.resolvePathFiltersInsertionAnchor(hostEl);
+		const parentEl = anchorEl.parentElement;
+		if (!parentEl) {
+			anchorEl.appendChild(pathFiltersEl);
+			return;
+		}
+		if (
+			pathFiltersEl.parentElement === parentEl &&
+			anchorEl.nextSibling === pathFiltersEl
+		) {
+			return;
+		}
+		parentEl.insertBefore(pathFiltersEl, anchorEl.nextSibling);
+	}
+
+	private syncPathFiltersGeometry(controls: SearchControls): void {
+		const parentEl = controls.pathFiltersEl.parentElement;
+		if (!parentEl || !controls.filtersAnchorEl.isConnected) {
+			return;
+		}
+
+		const anchorRect = controls.filtersAnchorEl.getBoundingClientRect();
+		const parentRect = parentEl.getBoundingClientRect();
+		const widthPx = Math.round(anchorRect.width);
+		const offsetPx = Math.round(anchorRect.left - parentRect.left);
+
+		controls.pathFiltersEl.style.width = `${Math.max(0, widthPx)}px`;
+		controls.pathFiltersEl.style.maxWidth = `${Math.max(0, widthPx)}px`;
+		controls.pathFiltersEl.style.marginLeft = `${Math.max(0, offsetPx)}px`;
+	}
+
+	private resolvePathFiltersInsertionAnchor(hostEl: HTMLElement): HTMLElement {
+		let anchorEl = hostEl;
+		let parentEl = anchorEl.parentElement;
+		while (parentEl) {
+			const style = window.getComputedStyle(parentEl);
+			const isHorizontalFlex =
+				style.display.includes("flex") &&
+				!style.flexDirection.startsWith("column");
+			if (!isHorizontalFlex) {
+				break;
+			}
+			anchorEl = parentEl;
+			parentEl = anchorEl.parentElement;
+		}
+		return anchorEl;
+	}
+
 	private positionControls(controls: SearchControls): void {
 		if (!controls.controlsEl.isConnected) {
 			return;
 		}
+		this.ensurePathFiltersPlacement(controls);
+		this.syncPathFiltersGeometry(controls);
 
 		let rightOffset = MIN_RIGHT_GUTTER;
 		const matchCaseAnchor = this.findMatchCaseAnchor(controls);
@@ -617,6 +1202,16 @@ export class SearchViewIntegration {
 		return buttonEl;
 	}
 
+	private relayoutAllControls(): void {
+		for (const controls of this.activeControls) {
+			if (!controls.inputEl.isConnected) {
+				continue;
+			}
+			this.positionControls(controls);
+			this.syncWholeWordTypography(controls);
+		}
+	}
+
 	private unwrapRegexLiteral(value: string): string | null {
 		if (value.length < 2 || !value.startsWith("/") || !value.endsWith("/")) {
 			return null;
@@ -628,3 +1223,4 @@ export class SearchViewIntegration {
 		return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	}
 }
+

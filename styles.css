@@ -55,6 +55,29 @@
 	position: relative;
 }
 
+.advanced-search-path-filters {
+	display: grid;
+	gap: 6px;
+	margin-top: 6px;
+	justify-self: start;
+}
+
+.advanced-search-path-filter-row {
+	display: grid;
+	gap: 4px;
+}
+
+.advanced-search-path-filter-label {
+	color: var(--text-muted);
+	font-size: 0.8em;
+	line-height: 1.2;
+}
+
+.advanced-search-path-filter-input {
+	box-sizing: border-box;
+	width: 100%;
+}
+
 .advanced-search-toggle-button {
 	align-items: center;
 	background: transparent;
