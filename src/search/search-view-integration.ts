@@ -28,7 +28,9 @@ interface SearchControls {
 	excludeGlob: string;
 	applyingQuery: boolean;
 	stateSyncId: number;
+	originalPaddingRightStyle: string;
 	originalPaddingRightPx: number;
+	positionHosts: HTMLElement[];
 	resizeObserver: ResizeObserver | null;
 }
 
@@ -66,13 +68,9 @@ export class SearchViewIntegration {
 	}
 
 	destroy(): void {
-		for (const controls of this.activeControls) {
-			controls.resizeObserver?.disconnect();
-			controls.resizeObserver = null;
-			controls.controlsEl.remove();
-			controls.pathFiltersEl.remove();
+		for (const controls of [...this.activeControls]) {
+			this.cleanupControls(controls, true);
 		}
-		this.activeControls.clear();
 	}
 
 	private injectControls(): void {
@@ -101,13 +99,79 @@ export class SearchViewIntegration {
 
 		for (const controls of [...this.activeControls]) {
 			if (!controls.inputEl.isConnected || !liveInputs.has(controls.inputEl)) {
-				controls.resizeObserver?.disconnect();
-				controls.resizeObserver = null;
-				controls.controlsEl.remove();
-				controls.pathFiltersEl.remove();
-				this.activeControls.delete(controls);
+				this.cleanupControls(controls, false);
 			}
 		}
+	}
+
+	private cleanupControls(
+		controls: SearchControls,
+		restoreSearchQuery: boolean
+	): void {
+		if (restoreSearchQuery) {
+			this.restoreSearchQueryToRawInput(controls);
+		}
+
+		controls.resizeObserver?.disconnect();
+		controls.resizeObserver = null;
+		controls.controlsEl.remove();
+		controls.pathFiltersEl.remove();
+
+		if (controls.inputEl.isConnected) {
+			controls.inputEl.style.paddingRight = controls.originalPaddingRightStyle;
+		}
+
+		for (const hostEl of controls.positionHosts) {
+			if (
+				hostEl.isConnected &&
+				!this.isHostUsedByOtherControl(hostEl, controls)
+			) {
+				hostEl.removeClass("advanced-search-host-relative");
+			}
+		}
+		controls.positionHosts.length = 0;
+
+		this.controlsByInput.delete(controls.inputEl);
+		this.activeControls.delete(controls);
+	}
+
+	private restoreSearchQueryToRawInput(controls: SearchControls): void {
+		const viewState = controls.leaf.getViewState();
+		if (viewState.type !== SEARCH_VIEW_TYPE) {
+			return;
+		}
+
+		const targetQuery = controls.rawQuery;
+		if (controls.inputEl.isConnected) {
+			controls.inputEl.value = targetQuery;
+		}
+		const currentState = viewState.state ?? {};
+		if (currentState.query === targetQuery) {
+			return;
+		}
+
+		void controls.leaf.setViewState({
+			...viewState,
+			state: {
+				...currentState,
+				query: targetQuery,
+			},
+		});
+	}
+
+	private isHostUsedByOtherControl(
+		hostEl: HTMLElement,
+		currentControls: SearchControls
+	): boolean {
+		for (const controls of this.activeControls) {
+			if (controls === currentControls) {
+				continue;
+			}
+			if (controls.positionHosts.includes(hostEl)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private findSearchInput(leaf: WorkspaceLeaf): HTMLInputElement | null {
@@ -197,11 +261,13 @@ export class SearchViewIntegration {
 			excludeGlob: "",
 			applyingQuery: false,
 			stateSyncId: 0,
+			originalPaddingRightStyle: inputEl.style.paddingRight,
 			originalPaddingRightPx: this.readPaddingRightPx(inputEl),
+			positionHosts: [],
 			resizeObserver: null,
 		};
 
-		this.ensureHostForAbsolutePosition(hostEl);
+		this.ensureHostForAbsolutePosition(hostEl, controls);
 		hostEl.appendChild(controlsEl);
 		this.positionControls(controls);
 		this.syncWholeWordTypography(controls);
@@ -903,9 +969,19 @@ export class SearchViewIntegration {
 		return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 	}
 
-	private ensureHostForAbsolutePosition(hostEl: HTMLElement): void {
-		if (window.getComputedStyle(hostEl).position === "static") {
+	private ensureHostForAbsolutePosition(
+		hostEl: HTMLElement,
+		controls?: SearchControls
+	): void {
+		if (window.getComputedStyle(hostEl).position !== "static") {
+			return;
+		}
+
+		if (!hostEl.hasClass("advanced-search-host-relative")) {
 			hostEl.addClass("advanced-search-host-relative");
+			if (controls && !controls.positionHosts.includes(hostEl)) {
+				controls.positionHosts.push(hostEl);
+			}
 		}
 	}
 
@@ -1062,7 +1138,7 @@ export class SearchViewIntegration {
 		}
 
 		controls.hostEl = commonHost;
-		this.ensureHostForAbsolutePosition(commonHost);
+		this.ensureHostForAbsolutePosition(commonHost, controls);
 		commonHost.appendChild(controls.controlsEl);
 	}
 
