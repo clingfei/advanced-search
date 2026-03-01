@@ -1,9 +1,8 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type AdvancedSearchPlugin from "./main";
-import type { SearchScope } from "./types";
 
 export interface AdvancedSearchSettings {
-	defaultScope: SearchScope;
+	defaultScope: "current" | "vault";
 	defaultWholeWord: boolean;
 	defaultUseRegex: boolean;
 	defaultMatchCase: boolean;
@@ -29,22 +28,8 @@ export class AdvancedSearchSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName("Default scope")
-			.setDesc("Choose where searches run by default.")
-			.addDropdown((dropdown) => {
-				dropdown
-					.addOption("current", "Current note")
-					.addOption("vault", "Whole vault")
-					.setValue(this.plugin.settings.defaultScope)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultScope = value as SearchScope;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		new Setting(containerEl)
 			.setName("Match whole word by default")
-			.setDesc("Only match complete words.")
+			.setDesc("Enable the whole-word icon when opening Obsidian search.")
 			.addToggle((toggle) => {
 				toggle
 					.setValue(this.plugin.settings.defaultWholeWord)
@@ -56,24 +41,12 @@ export class AdvancedSearchSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Use regular expression by default")
-			.setDesc("Treat the search query as a regular expression.")
+			.setDesc("Enable the regex icon when opening Obsidian search.")
 			.addToggle((toggle) => {
 				toggle
 					.setValue(this.plugin.settings.defaultUseRegex)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultUseRegex = value;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		new Setting(containerEl)
-			.setName("Match case by default")
-			.setDesc("Only match exact casing.")
-			.addToggle((toggle) => {
-				toggle
-					.setValue(this.plugin.settings.defaultMatchCase)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultMatchCase = value;
 						await this.plugin.saveSettings();
 					});
 			});

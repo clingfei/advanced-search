@@ -4,15 +4,22 @@ import {
 	DEFAULT_SETTINGS,
 	type AdvancedSearchSettings,
 } from "./settings";
-import { registerCommands } from "./commands";
+import { SearchViewIntegration } from "./search/search-view-integration";
 
 export default class AdvancedSearchPlugin extends Plugin {
 	settings: AdvancedSearchSettings;
+	private searchViewIntegration: SearchViewIntegration | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.addSettingTab(new AdvancedSearchSettingTab(this.app, this));
-		registerCommands(this);
+		this.searchViewIntegration = new SearchViewIntegration(this);
+		this.searchViewIntegration.initialize();
+	}
+
+	onunload(): void {
+		this.searchViewIntegration?.destroy();
+		this.searchViewIntegration = null;
 	}
 
 	async loadSettings(): Promise<void> {

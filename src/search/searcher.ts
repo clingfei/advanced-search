@@ -34,8 +34,7 @@ export function findMatchesInContent(
 	const lines = content.split(/\r?\n/);
 	const matches: LineMatch[] = [];
 
-	for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-		const line = lines[lineIndex];
+	for (const [lineIndex, line] of lines.entries()) {
 		regex.lastIndex = 0;
 		let match: RegExpExecArray | null;
 
