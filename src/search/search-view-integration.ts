@@ -151,10 +151,9 @@ export class SearchViewIntegration {
 		});
 		controlsEl.setAttr(CONTROLS_ATTRIBUTE, "true");
 
-		const pathFiltersEl = createDiv({
-			cls: "advanced-search-path-filters",
-		});
-		pathFiltersEl.setAttr(PATH_FILTERS_ATTRIBUTE, "true");
+		const pathFiltersEl = hostEl.ownerDocument.createElement("div");
+		pathFiltersEl.addClass("advanced-search-path-filters");
+		pathFiltersEl.setAttribute(PATH_FILTERS_ATTRIBUTE, "true");
 		this.appendPathFiltersAfterHost(hostEl, pathFiltersEl);
 
 		const includeInputEl = this.createPathFilterInput(
@@ -401,7 +400,7 @@ export class SearchViewIntegration {
 		const queryForSearch = this.buildSearchQuery(controls);
 
 		const viewState = controls.leaf.getViewState();
-		const currentState = (viewState.state ?? {}) as Record<string, unknown>;
+		const currentState = viewState.state ?? {};
 		const sameQuery = currentState.query === queryForSearch;
 		if (sameQuery && !forceRefresh) {
 			return;
@@ -424,8 +423,7 @@ export class SearchViewIntegration {
 				});
 
 				const refreshedViewState = controls.leaf.getViewState();
-				const refreshedState = (refreshedViewState.state ??
-					{}) as Record<string, unknown>;
+				const refreshedState = refreshedViewState.state ?? {};
 				await controls.leaf.setViewState({
 					...refreshedViewState,
 					state: {
