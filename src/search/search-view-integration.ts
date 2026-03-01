@@ -294,7 +294,7 @@ export class SearchViewIntegration {
 		);
 
 		const viewState = controls.leaf.getViewState();
-		const currentState = (viewState.state ?? {}) as Record<string, unknown>;
+		const currentState = viewState.state ?? {};
 		const sameQuery = currentState.query === queryForSearch;
 		if (sameQuery && !forceRefresh) {
 			return;
@@ -317,8 +317,7 @@ export class SearchViewIntegration {
 				});
 
 				const refreshedViewState = controls.leaf.getViewState();
-				const refreshedState = (refreshedViewState.state ??
-					{}) as Record<string, unknown>;
+				const refreshedState = refreshedViewState.state ?? {};
 				await controls.leaf.setViewState({
 					...refreshedViewState,
 					state: {
