@@ -2,10 +2,9 @@
 	"id": "advanced-search",
 	"name": "Advanced search",
 	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"minAppVersion": "1.0.0",
+	"description": "Extend Obsidian's built-in Search by adding VS Code-like search controls.",
+	"author": "Cheng Lingfei",
+	"authorUrl": "https://github.com/clingfei",
 	"isDesktopOnly": false
 }
