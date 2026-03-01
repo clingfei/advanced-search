@@ -73,6 +73,11 @@ export async function searchFiles(
 		}
 
 		const file = files[index];
+		if (!file) {
+			options.onProgress?.(index + 1, files.length);
+			continue;
+		}
+
 		const content = await vault.cachedRead(file);
 		const matches = findMatchesInContent(content, regex);
 

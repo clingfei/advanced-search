@@ -9,7 +9,7 @@ const DEBOUNCE_MS = 350;
 export class SearchModal extends Modal {
 	private plugin: AdvancedSearchPlugin;
 	private query = "";
-	private scope: SearchScope;
+	private searchScope: SearchScope;
 	private wholeWord: boolean;
 	private useRegex: boolean;
 	private matchCase: boolean;
@@ -22,7 +22,7 @@ export class SearchModal extends Modal {
 	constructor(plugin: AdvancedSearchPlugin, initialScope?: SearchScope) {
 		super(plugin.app);
 		this.plugin = plugin;
-		this.scope = initialScope ?? plugin.settings.defaultScope;
+		this.searchScope = initialScope ?? plugin.settings.defaultScope;
 		this.wholeWord = plugin.settings.defaultWholeWord;
 		this.useRegex = plugin.settings.defaultUseRegex;
 		this.matchCase = plugin.settings.defaultMatchCase;
@@ -55,9 +55,9 @@ export class SearchModal extends Modal {
 				dropdown
 					.addOption("current", "Current note")
 					.addOption("vault", "Whole vault")
-					.setValue(this.scope)
+					.setValue(this.searchScope)
 					.onChange((value) => {
-						this.scope = value as SearchScope;
+						this.searchScope = value as SearchScope;
 						this.persistOptions();
 						this.scheduleSearch();
 					});
@@ -130,7 +130,7 @@ export class SearchModal extends Modal {
 	}
 
 	private getSearchFiles(): { files: SearchResult["file"][]; error?: string } {
-		if (this.scope === "current") {
+		if (this.searchScope === "current") {
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 			if (!view?.file) {
 				return { files: [], error: "No active note to search." };
@@ -266,7 +266,7 @@ export class SearchModal extends Modal {
 	}
 
 	private persistOptions(): void {
-		this.plugin.settings.defaultScope = this.scope;
+		this.plugin.settings.defaultScope = this.searchScope;
 		this.plugin.settings.defaultWholeWord = this.wholeWord;
 		this.plugin.settings.defaultUseRegex = this.useRegex;
 		this.plugin.settings.defaultMatchCase = this.matchCase;

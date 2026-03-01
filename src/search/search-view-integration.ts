@@ -451,7 +451,12 @@ export class SearchViewIntegration {
 			return DEFAULT_ICON_GAP;
 		}
 
-		const previousRect = icons[anchorIndex - 1].getBoundingClientRect();
+		const previousIcon = icons[anchorIndex - 1];
+		if (!previousIcon) {
+			return DEFAULT_ICON_GAP;
+		}
+
+		const previousRect = previousIcon.getBoundingClientRect();
 		const anchorRect = anchorEl.getBoundingClientRect();
 		const measuredGap = Math.round(anchorRect.left - previousRect.right);
 		if (!Number.isFinite(measuredGap) || measuredGap < 0) {
@@ -581,7 +586,8 @@ export class SearchViewIntegration {
 		}
 
 		// Fallback: use the right-most icon on the same row to avoid overlapping built-in icons.
-		return candidates.length > 0 ? candidates[candidates.length - 1] : null;
+		const lastCandidate = candidates[candidates.length - 1];
+		return lastCandidate ?? null;
 	}
 
 	private syncWholeWordTypography(
