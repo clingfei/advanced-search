@@ -3,7 +3,7 @@
 	"name": "Advanced search",
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
-	"description": "Extend Obsidian's built-in Search by adding VS Code-like search controls.",
+	"description": "Extend built-in Search by adding VS Code-like search controls.",
 	"author": "Cheng Lingfei",
 	"authorUrl": "https://github.com/clingfei",
 	"isDesktopOnly": false
