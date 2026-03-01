@@ -3,16 +3,16 @@ import { SearchModal } from "../ui/search-modal";
 
 export function registerCommands(plugin: AdvancedSearchPlugin): void {
 	plugin.addCommand({
-		id: "advanced-search-open",
-		name: "Advanced search",
+		id: "open-search",
+		name: "Open search",
 		callback: () => {
 			new SearchModal(plugin).open();
 		},
 	});
 
 	plugin.addCommand({
-		id: "advanced-search-current-note",
-		name: "Advanced search in current note",
+		id: "search-current-note",
+		name: "Search in current note",
 		callback: () => {
 			new SearchModal(plugin, "current").open();
 		},

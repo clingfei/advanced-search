@@ -112,14 +112,15 @@ export class SearchViewIntegration {
 		leaf: WorkspaceLeaf,
 		inputEl: HTMLInputElement
 	): SearchControls {
+		const nearestSearchContainer = inputEl.closest(".search-input-container");
 		const hostEl =
-			(inputEl.closest(".search-input-container") as HTMLElement | null) ??
-			inputEl.parentElement ??
-			leaf.view.containerEl;
+			nearestSearchContainer instanceof HTMLElement
+				? nearestSearchContainer
+				: inputEl.parentElement ?? leaf.view.containerEl;
 
 		hostEl.findAll(`[${CONTROLS_ATTRIBUTE}]`).forEach((el) => el.remove());
 
-		const controlsEl = createDiv({
+		const controlsEl = hostEl.createDiv({
 			cls: "advanced-search-inline-controls",
 		});
 		controlsEl.setAttr(CONTROLS_ATTRIBUTE, "true");
@@ -151,7 +152,6 @@ export class SearchViewIntegration {
 		};
 
 		this.ensureHostForAbsolutePosition(hostEl);
-		hostEl.appendChild(controlsEl);
 		this.positionControls(controls);
 		this.syncWholeWordTypography(controls);
 
@@ -290,7 +290,7 @@ export class SearchViewIntegration {
 		);
 
 		const viewState = controls.leaf.getViewState();
-		const currentState = (viewState.state ?? {}) as Record<string, unknown>;
+		const currentState = viewState.state ?? {};
 		if (currentState.query === queryForSearch) {
 			return;
 		}
@@ -310,18 +310,16 @@ export class SearchViewIntegration {
 				},
 			});
 		} finally {
-			if (syncId !== controls.stateSyncId) {
-				return;
-			}
-
-			if (inputEl.isConnected) {
-				inputEl.value = visibleValue;
-				if (selectionStart !== null && selectionEnd !== null) {
-					inputEl.setSelectionRange(selectionStart, selectionEnd);
+			if (syncId === controls.stateSyncId) {
+				if (inputEl.isConnected) {
+					inputEl.value = visibleValue;
+					if (selectionStart !== null && selectionEnd !== null) {
+						inputEl.setSelectionRange(selectionStart, selectionEnd);
+					}
 				}
+				controls.applyingQuery = false;
+				this.positionControls(controls);
 			}
-			controls.applyingQuery = false;
-			this.positionControls(controls);
 		}
 	}
 
