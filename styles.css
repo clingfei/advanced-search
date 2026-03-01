@@ -1,8 +1,41 @@
-/*
+.advanced-search-results {
+	margin-top: 12px;
+	max-height: 60vh;
+	overflow: auto;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.advanced-search-summary {
+	color: var(--text-muted);
+	margin-bottom: 8px;
+}
 
-If your plugin does not need CSS, delete this file.
+.advanced-search-item {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 6px 8px;
+	margin-bottom: 8px;
+	cursor: pointer;
+}
 
-*/
+.advanced-search-item:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.advanced-search-item-header {
+	color: var(--text-muted);
+	font-size: 0.85em;
+	margin-bottom: 4px;
+}
+
+.advanced-search-item-preview {
+	font-family: var(--font-monospace);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.advanced-search-match {
+	background-color: var(--text-accent);
+	color: var(--text-on-accent);
+	border-radius: 3px;
+	padding: 0 2px;
+}
