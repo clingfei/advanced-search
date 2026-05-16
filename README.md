@@ -33,3 +33,12 @@ For include/exclude filters:
 - Value with glob characters uses glob matching.
 - To force folder-only behavior, add a trailing slash (for example `test/`).
 - To force file-only behavior, use full file name or relative file path.
+
+## Privacy and data access
+
+This plugin only reads files locally inside your Obsidian vault to perform search.
+
+- **What it reads:** file paths and file contents in the active vault, via Obsidian's `vault.getMarkdownFiles()` / `vault.getAllLoadedFiles()` APIs. This is what triggers the "Vault Enumeration" disclosure shown on the community-plugin listing; it is required for global search and include/exclude path filtering to work.
+- **No network access:** the plugin makes no HTTP requests and does not load any remote resource. There is no `fetch`, `requestUrl`, or `XMLHttpRequest` call in the source.
+- **No telemetry:** nothing about your vault, queries, results, or usage is collected, stored outside the vault, or transmitted anywhere.
+- **No file modification:** the plugin is read-only with respect to your notes. The only thing it writes is its own settings via Obsidian's `saveData()` (stored in `data.json` inside the plugin folder).
